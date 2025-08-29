@@ -1,0 +1,8 @@
+pandas
+flask
+click
+numpy
+python-dateutil
+pytz
+openpyxl
+gunicorn
