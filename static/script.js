@@ -36,6 +36,37 @@ $(document).ready(function() {
         width: '100%'
     });
     
+    // Initialize Select2 for dashboard class selector
+    $('#dashboardClassSelect').select2({
+        placeholder: "Select your class section...",
+        allowClear: true,
+        width: '100%'
+    });
+    
+    // Initialize Select2 for modal class selector
+    $('#modalClassSelect').select2({
+        placeholder: "Select your class...",
+        allowClear: true,
+        width: '100%',
+        dropdownParent: $('#classSelectionModal')
+    });
+    
+    // Initialize Select2 for day selector
+    $('#day-selector').select2({
+        placeholder: "Choose a day...",
+        allowClear: true,
+        width: '100%',
+        minimumResultsForSearch: -1 // Disable search for day selector
+    });
+    
+    // Add responsive behavior for Select2 dropdowns on mobile
+    $(document).on('select2:close', function(e) {
+        // Remove focus from the element to dismiss keyboard on mobile
+        if (window.innerWidth <= 768) {
+            $(e.target).blur();
+        }
+    });
+    
     // Load dashboard data
     loadDashboardData();
     
@@ -50,27 +81,6 @@ $(document).ready(function() {
 
     // Check for class selection modal
     checkClassSelectionModal();
-
-    // Query admin status to set UI
-    fetch('/admin/status')
-        .then(r => r.json())
-        .then(json => {
-            if (json.logged_in) {
-                document.getElementById('admin-login-panel').style.display = 'none';
-                document.getElementById('admin-actions').style.display = 'block';
-                document.getElementById('admin-logout-btn').style.display = 'inline-block';
-            }
-            if (json.must_change_password) {
-                // Show banner and disable upload until changed
-                const banner = document.getElementById('admin-must-change');
-                if (banner) banner.style.display = 'block';
-                const uploadBtn = document.getElementById('admin-upload-btn');
-                if (uploadBtn) uploadBtn.disabled = true;
-                // Show admin actions so user can change credentials
-                document.getElementById('admin-actions').style.display = 'block';
-                document.getElementById('admin-login-panel').style.display = 'none';
-            }
-        });
 });
 
 // Load dashboard data
@@ -155,6 +165,9 @@ function showClassSelectionModal() {
                 select.appendChild(option);
             });
             
+            // Trigger Select2 update for modal
+            $('#modalClassSelect').trigger('change');
+            
             // Also populate dashboard selector
             populateDashboardClassSelector(sections);
             
@@ -184,6 +197,9 @@ function populateDashboardClassSelector(sections) {
         select.value = selectedClass;
         document.getElementById('selectedClassInfo').style.display = 'block';
     }
+    
+    // Trigger Select2 update
+    $('#dashboardClassSelect').trigger('change');
 }
 
 // Save selected class from modal
@@ -443,6 +459,7 @@ function setTodayAsSelected() {
     const daySelect = document.getElementById('day-selector');
     if (daySelect) {
         daySelect.value = todayName;
+        $('#day-selector').trigger('change');
         loadDaySchedule();
     }
 }
@@ -746,6 +763,21 @@ document.getElementById('overlay').addEventListener('click', function() {
     toggleSidebar();
 });
 
+// Close sidebar when clicking on main content on mobile devices
+document.addEventListener('click', function(event) {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    const burgerBtn = document.querySelector('.burger-btn');
+    
+    // Check if click is outside sidebar and not on burger button
+    if (sidebar && sidebar.classList.contains('active') && 
+        !sidebar.contains(event.target) && 
+        !burgerBtn.contains(event.target)) {
+        sidebar.classList.remove('active');
+        if (overlay) overlay.classList.remove('active');
+    }
+});
+
 // Section navigation
 function showSection(sectionId) {
     // Hide all sections
@@ -780,13 +812,335 @@ function showSection(sectionId) {
     } catch (e) { /* ignore */ }
 
     // Close sidebar for small screens for better UX
-    if (window.innerWidth <= 992) {
-        const sidebar = document.getElementById('sidebar');
-        const overlay = document.getElementById('overlay');
-        if (sidebar.classList.contains('active')) toggleSidebar();
-        overlay.classList.remove('active');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    if (sidebar && sidebar.classList.contains('active')) {
+        sidebar.classList.remove('active');
+        if (overlay) overlay.classList.remove('active');
+    }
+
+    // Handle admin panel initialization
+    if (sectionId === 'admin-panel') {
+        initializeAdminPanel();
     }
 }
+
+// Admin Panel Functions
+function initializeAdminPanel() {
+    checkAdminStatus();
+}
+
+function checkAdminStatus() {
+    fetch('/admin/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.logged_in) {
+                if (data.must_change_password) {
+                    showChangeCredentialsSection();
+                } else {
+                    showAdminDashboard();
+                    updateCurrentAdminUsername(data.username);
+                }
+            } else {
+                showLoginSection();
+            }
+        })
+        .catch(error => {
+            console.error('Error checking admin status:', error);
+            showLoginSection();
+        });
+}
+
+function showLoginSection() {
+    document.getElementById('admin-login-section').style.display = 'block';
+    document.getElementById('admin-change-credentials-section').style.display = 'none';
+    document.getElementById('admin-dashboard-section').style.display = 'none';
+    clearAdminMessages();
+}
+
+function showChangeCredentialsSection() {
+    document.getElementById('admin-login-section').style.display = 'none';
+    document.getElementById('admin-change-credentials-section').style.display = 'block';
+    document.getElementById('admin-dashboard-section').style.display = 'none';
+    clearAdminMessages();
+}
+
+function showAdminDashboard() {
+    document.getElementById('admin-login-section').style.display = 'none';
+    document.getElementById('admin-change-credentials-section').style.display = 'none';
+    document.getElementById('admin-dashboard-section').style.display = 'block';
+    clearAdminMessages();
+}
+
+function adminLogin() {
+    const username = document.getElementById('admin-username').value.trim();
+    const password = document.getElementById('admin-password').value;
+
+    if (!username || !password) {
+        showAdminMessage('admin-login-message', 'Please enter both username and password', 'error');
+        return;
+    }
+
+    const loginBtn = event.target;
+    setButtonLoading(loginBtn, true);
+
+    fetch('/admin/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password })
+    })
+    .then(response => response.json())
+    .then(data => {
+        setButtonLoading(loginBtn, false);
+        
+        if (data.success) {
+            if (data.must_change_password) {
+                showChangeCredentialsSection();
+                showAdminMessage('admin-change-message', 'You must change the default credentials before proceeding.', 'warning');
+            } else {
+                showAdminDashboard();
+                updateCurrentAdminUsername(username);
+                showAdminMessage('upload-message', 'Successfully logged in!', 'success');
+            }
+            // Clear login form
+            document.getElementById('admin-username').value = '';
+            document.getElementById('admin-password').value = '';
+        } else {
+            showAdminMessage('admin-login-message', data.message || 'Login failed', 'error');
+        }
+    })
+    .catch(error => {
+        setButtonLoading(loginBtn, false);
+        console.error('Login error:', error);
+        showAdminMessage('admin-login-message', 'An error occurred during login', 'error');
+    });
+}
+
+function changeAdminCredentials() {
+    const newUsername = document.getElementById('new-admin-username').value.trim();
+    const newPassword = document.getElementById('new-admin-password').value;
+    const confirmPassword = document.getElementById('confirm-admin-password').value;
+
+    if (!newUsername || !newPassword || !confirmPassword) {
+        showAdminMessage('admin-change-message', 'Please fill in all fields', 'error');
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        showAdminMessage('admin-change-message', 'Passwords do not match', 'error');
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        showAdminMessage('admin-change-message', 'Password must be at least 6 characters long', 'error');
+        return;
+    }
+
+    const changeBtn = event.target;
+    setButtonLoading(changeBtn, true);
+
+    fetch('/admin/change_credentials', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            username: newUsername, 
+            password: newPassword 
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        setButtonLoading(changeBtn, false);
+        
+        if (data.success) {
+            showAdminDashboard();
+            updateCurrentAdminUsername(newUsername);
+            showAdminMessage('upload-message', 'Credentials changed successfully!', 'success');
+            // Clear form
+            document.getElementById('new-admin-username').value = '';
+            document.getElementById('new-admin-password').value = '';
+            document.getElementById('confirm-admin-password').value = '';
+        } else {
+            showAdminMessage('admin-change-message', data.message || 'Failed to change credentials', 'error');
+        }
+    })
+    .catch(error => {
+        setButtonLoading(changeBtn, false);
+        console.error('Change credentials error:', error);
+        showAdminMessage('admin-change-message', 'An error occurred while changing credentials', 'error');
+    });
+}
+
+function uploadTimetableFile() {
+    const fileInput = document.getElementById('upload-file');
+    const username = document.getElementById('upload-username').value.trim();
+    const password = document.getElementById('upload-password').value;
+
+    if (!fileInput.files[0]) {
+        showAdminMessage('upload-message', 'Please select a file to upload', 'error');
+        return;
+    }
+
+    if (!username || !password) {
+        showAdminMessage('upload-message', 'Please enter your admin credentials', 'error');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const allowedTypes = ['.csv', '.xls', '.xlsx'];
+    const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+    
+    if (!allowedTypes.includes(fileExtension)) {
+        showAdminMessage('upload-message', 'Please select a valid file type (.csv, .xls, .xlsx)', 'error');
+        return;
+    }
+
+    const uploadBtn = event.target;
+    setButtonLoading(uploadBtn, true);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('username', username);
+    formData.append('password', password);
+
+    fetch('/admin/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        setButtonLoading(uploadBtn, false);
+        
+        if (data.success) {
+            showAdminMessage('upload-message', data.message || 'File uploaded and processed successfully!', 'success');
+            // Clear form
+            fileInput.value = '';
+            document.getElementById('upload-username').value = '';
+            document.getElementById('upload-password').value = '';
+            // Refresh dashboard data to show new timetable
+            setTimeout(() => {
+                loadDashboardData();
+                loadTeachers();
+                loadSections();
+            }, 1000);
+        } else {
+            showAdminMessage('upload-message', data.message || 'Upload failed', 'error');
+        }
+    })
+    .catch(error => {
+        setButtonLoading(uploadBtn, false);
+        console.error('Upload error:', error);
+        showAdminMessage('upload-message', 'An error occurred during upload', 'error');
+    });
+}
+
+function adminLogout() {
+    fetch('/admin/logout', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showLoginSection();
+            showAdminMessage('admin-login-message', 'Successfully logged out', 'success');
+        }
+    })
+    .catch(error => {
+        console.error('Logout error:', error);
+    });
+}
+
+function updateCurrentAdminUsername(username) {
+    const usernameElement = document.getElementById('current-admin-username');
+    if (usernameElement) {
+        usernameElement.textContent = username;
+    }
+}
+
+function showAdminMessage(elementId, message, type) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    element.innerHTML = `<div class="admin-message ${type}">
+        <i class="fas fa-${getMessageIcon(type)} mr-2"></i>${message}
+    </div>`;
+}
+
+function getMessageIcon(type) {
+    switch (type) {
+        case 'success': return 'check-circle';
+        case 'error': return 'exclamation-triangle';
+        case 'warning': return 'exclamation-circle';
+        case 'info': return 'info-circle';
+        default: return 'info-circle';
+    }
+}
+
+function clearAdminMessages() {
+    const messageElements = [
+        'admin-login-message',
+        'admin-change-message', 
+        'upload-message'
+    ];
+    
+    messageElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.innerHTML = '';
+        }
+    });
+}
+
+function setButtonLoading(button, loading) {
+    if (loading) {
+        button.classList.add('loading');
+        button.disabled = true;
+        button.setAttribute('data-original-text', button.innerHTML);
+        button.innerHTML = '<span class="loading"></span> Loading...';
+    } else {
+        button.classList.remove('loading');
+        button.disabled = false;
+        const originalText = button.getAttribute('data-original-text');
+        if (originalText) {
+            button.innerHTML = originalText;
+        }
+    }
+}
+
+// Add keyboard event listeners for admin forms
+document.addEventListener('DOMContentLoaded', function() {
+    // Login form enter key support
+    const adminUsername = document.getElementById('admin-username');
+    const adminPassword = document.getElementById('admin-password');
+    
+    if (adminUsername && adminPassword) {
+        [adminUsername, adminPassword].forEach(input => {
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    adminLogin();
+                }
+            });
+        });
+    }
+
+    // Change credentials form enter key support
+    const newUsername = document.getElementById('new-admin-username');
+    const newPassword = document.getElementById('new-admin-password');
+    const confirmPassword = document.getElementById('confirm-admin-password');
+    
+    if (newUsername && newPassword && confirmPassword) {
+        [newUsername, newPassword, confirmPassword].forEach(input => {
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    changeAdminCredentials();
+                }
+            });
+        });
+    }
+});
 
 // Theme toggle functionality
 function toggleTheme() {
@@ -861,150 +1215,6 @@ function loadSections() {
                 sectionCountElement.textContent = 'Error loading';
             }
         });
-}
-
-// -------------------- Admin functions --------------------
-function adminLogin() {
-    const username = document.getElementById('admin-username').value;
-    const password = document.getElementById('admin-password').value;
-
-    fetch('/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-    })
-    .then(r => r.json().then(j => ({status: r.status, body: j})))
-    .then(({status, body}) => {
-        if (status === 200 && body.success) {
-            document.getElementById('admin-login-panel').style.display = 'none';
-            document.getElementById('admin-actions').style.display = 'block';
-            document.getElementById('admin-logout-btn').style.display = 'inline-block';
-            if (body.must_change_password) {
-                // Show banner and disable upload until changed
-                const banner = document.getElementById('admin-must-change');
-                if (banner) banner.style.display = 'block';
-                const uploadBtn = document.getElementById('admin-upload-btn');
-                if (uploadBtn) uploadBtn.disabled = true;
-                // Focus change credentials inputs
-                document.getElementById('admin-new-username').focus();
-            }
-        } else {
-            const msg = document.getElementById('admin-login-message');
-            msg.style.display = 'block';
-            msg.textContent = body.message || 'Login failed';
-        }
-    })
-    .catch(err => console.error(err));
-}
-
-function adminLogout() {
-    fetch('/admin/logout', { method: 'POST' })
-        .then(() => {
-            document.getElementById('admin-login-panel').style.display = 'block';
-            document.getElementById('admin-actions').style.display = 'none';
-            document.getElementById('admin-logout-btn').style.display = 'none';
-        })
-        .catch(err => console.error(err));
-}
-
-function adminUploadFile() {
-    const fileInput = document.getElementById('admin-file');
-    if (!fileInput.files || fileInput.files.length === 0) return alert('Select a file first');
-
-    const fd = new FormData();
-    fd.append('file', fileInput.files[0]);
-
-    fetch('/admin/upload', { method: 'POST', body: fd })
-        .then(r => r.json())
-        .then(json => {
-            if (json.success) {
-                alert('Upload successful. Timetable updated.');
-                loadSections();
-                loadAllTeacherTimetables();
-            } else {
-                alert('Upload failed: ' + (json.message || 'Unknown'));
-            }
-        })
-        .catch(err => { console.error(err); alert('Upload error'); });
-}
-
-// New: open upload auth modal which asks for admin credentials every time
-function openUploadAuthModal() {
-    // Ensure a file is selected
-    const fileInput = document.getElementById('admin-file');
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) return alert('Select a file first');
-    // Clear previous messages
-    const msg = document.getElementById('upload-auth-message'); if (msg) { msg.style.display = 'none'; msg.textContent = ''; }
-    $('#uploadAuthModal').modal({ backdrop: 'static', keyboard: true });
-    $('#uploadAuthModal').modal('show');
-}
-
-// Perform upload with provided admin credentials (username+password)
-function performAdminUpload() {
-    const user = document.getElementById('upload-username').value;
-    const pass = document.getElementById('upload-password').value;
-    const msg = document.getElementById('upload-auth-message');
-    if (!user || !pass) {
-        if (msg) { msg.style.display = 'block'; msg.textContent = 'Enter username and password'; }
-        return;
-    }
-    const fileInput = document.getElementById('admin-file');
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) return alert('Select a file first');
-
-    const fd = new FormData();
-    fd.append('file', fileInput.files[0]);
-    fd.append('username', user);
-    fd.append('password', pass);
-
-    fetch('/admin/upload', { method: 'POST', body: fd })
-        .then(r => r.json())
-        .then(json => {
-            if (json.success) {
-                $('#uploadAuthModal').modal('hide');
-                alert('Upload successful. Timetable updated.');
-                loadSections();
-                loadAllTeacherTimetables();
-            } else {
-                if (msg) { msg.style.display = 'block'; msg.textContent = json.message || 'Authentication failed'; }
-            }
-        })
-        .catch(err => {
-            console.error(err);
-            if (msg) { msg.style.display = 'block'; msg.textContent = 'Upload error'; }
-        });
-}
-
-function adminChangeCredentials() {
-    const username = document.getElementById('admin-new-username').value;
-    const password = document.getElementById('admin-new-password').value;
-
-    if (!username || !password) return alert('Enter username and password');
-
-    fetch('/admin/change_credentials', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-    })
-    .then(r => r.json())
-    .then(json => {
-        if (json.success) {
-            alert('Credentials changed successfully');
-            // Hide banner and enable upload
-            const banner = document.getElementById('admin-must-change');
-            if (banner) banner.style.display = 'none';
-            const uploadBtn = document.getElementById('admin-upload-btn');
-            if (uploadBtn) uploadBtn.disabled = false;
-            // Ensure admin actions visible and login panel hidden
-            document.getElementById('admin-actions').style.display = 'block';
-            document.getElementById('admin-login-panel').style.display = 'none';
-            // Hide the change credentials card after successful change (one admin only)
-            const changeCard = document.getElementById('admin-change-card');
-            if (changeCard) changeCard.style.display = 'none';
-        } else {
-            alert('Failed: ' + (json.message || 'Unknown'));
-        }
-    })
-    .catch(err => console.error(err));
 }
 
 // -------------------- Export / Print for selected section --------------------
@@ -1227,6 +1437,7 @@ function loadSectionTimetable() {
     const dashboardSelect = document.getElementById('dashboardClassSelect');
     if (dashboardSelect && dashboardSelect.value !== sectionName) {
         dashboardSelect.value = sectionName;
+        $('#dashboardClassSelect').trigger('change');
         localStorage.setItem('selectedClass', sectionName);
         updateDashboardForSelectedClass(sectionName);
         document.getElementById('selectedClassInfo').style.display = 'block';

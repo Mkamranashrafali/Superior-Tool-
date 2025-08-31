@@ -1,0 +1,11 @@
+Day,Time,Room,Subject,Class/Group,"Teacher(s) Name"
+Monday,09:00-10:30,A-101,Programming Fundamentals,BSSE-1A,Mr. Ahmed Khan
+Monday,10:45-12:15,B-201,Database Systems,BSSE-3A,Dr. Sarah Ali
+Tuesday,09:00-10:30,C-301,Data Structures,BSSE-2A,Ms. Fatima Sheikh
+Tuesday,10:45-12:15,A-101,Web Development,BSSE-4A,Mr. Hassan Malik
+Wednesday,09:00-10:30,B-201,Object Oriented Programming,BSSE-2B,Dr. Usman Ahmad
+Wednesday,10:45-12:15,C-301,Software Engineering,BSSE-3B,Ms. Ayesha Naeem
+Thursday,09:00-10:30,A-101,Computer Networks,BSSE-4B,Mr. Ali Raza
+Thursday,10:45-12:15,B-201,Machine Learning,BSSE-5A,Dr. Zainab Khan
+Friday,09:00-10:30,C-301,Digital Logic Design,BSSE-1B,Mr. Muhammad Usman
+Friday,10:45-12:15,A-101,Operating Systems,BSSE-3A,Ms. Hira Tariq

@@ -174,7 +174,7 @@ def get_current_csv_file():
 def admin_login():
     # Check if accessing from /admin route
     referrer = request.headers.get('Referer', '')
-    if '/admin' not in referrer:
+    if '/admin' not in referrer and request.environ.get('HTTP_REFERER', '').find('/admin') == -1:
         return jsonify({'success': False, 'message': 'Access denied. Please use /admin route.'}), 403
     
     creds = load_admin_credentials()
@@ -187,10 +187,12 @@ def admin_login():
         if not creds.get('initialized', False):
             # Do not grant full admin; set temporary auth so user can change password
             session['admin_temp_auth'] = True
+            session['admin_temp_auth_time'] = datetime.now().timestamp()
             return jsonify({'success': True, 'must_change_password': True})
 
         # Normal login
         session['admin_logged_in'] = True
+        session['admin_login_time'] = datetime.now().timestamp()
         return jsonify({'success': True, 'must_change_password': False})
 
     return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
@@ -198,7 +200,7 @@ def admin_login():
 
 @app.route('/admin/logout', methods=['POST'])
 def admin_logout():
-    session.pop('admin_logged_in', None)
+    session.clear()
     return jsonify({'success': True})
 
 
@@ -206,11 +208,23 @@ def admin_logout():
 def admin_change_credentials():
     # Check if accessing from /admin route
     referrer = request.headers.get('Referer', '')
-    if '/admin' not in referrer:
+    if '/admin' not in referrer and request.environ.get('HTTP_REFERER', '').find('/admin') == -1:
         return jsonify({'success': False, 'message': 'Access denied. Please use /admin route.'}), 403
     
     # Allow change if admin already logged in or has temporary auth (first-time)
-    if not session.get('admin_logged_in') and not session.get('admin_temp_auth'):
+    # Check session timeout (30 minutes)
+    current_time = datetime.now().timestamp()
+    if session.get('admin_logged_in'):
+        login_time = session.get('admin_login_time', 0)
+        if current_time - login_time > 1800:  # 30 minutes
+            session.clear()
+            return jsonify({'success': False, 'message': 'Session expired. Please login again.'}), 401
+    elif session.get('admin_temp_auth'):
+        temp_auth_time = session.get('admin_temp_auth_time', 0)
+        if current_time - temp_auth_time > 300:  # 5 minutes for temp auth
+            session.clear()
+            return jsonify({'success': False, 'message': 'Temporary session expired. Please login again.'}), 401
+    else:
         return jsonify({'success': False, 'message': 'Not authorized'}), 403
 
     body = request.get_json() or {}
@@ -220,20 +234,43 @@ def admin_change_credentials():
     if not new_username or not new_password:
         return jsonify({'success': False, 'message': 'Username and password required'}), 400
 
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'message': 'Password must be at least 6 characters long'}), 400
+
     save_admin_credentials(new_username, generate_password_hash(new_password), initialized=True)
     # After successful change, grant full admin and clear temp auth
     session.pop('admin_temp_auth', None)
+    session.pop('admin_temp_auth_time', None)
     session['admin_logged_in'] = True
+    session['admin_login_time'] = current_time
     return jsonify({'success': True})
 
 
 @app.route('/admin/status', methods=['GET'])
 def admin_status():
+    # Check session timeout
+    current_time = datetime.now().timestamp()
+    if session.get('admin_logged_in'):
+        login_time = session.get('admin_login_time', 0)
+        if current_time - login_time > 1800:  # 30 minutes
+            session.clear()
+            creds = load_admin_credentials()
+            return jsonify({
+                'logged_in': False,
+                'must_change_password': not bool(creds.get('initialized', False)),
+                'username': creds.get('username'),
+                'message': 'Session expired'
+            })
+    elif session.get('admin_temp_auth'):
+        temp_auth_time = session.get('admin_temp_auth_time', 0)
+        if current_time - temp_auth_time > 300:  # 5 minutes for temp auth
+            session.clear()
+    
     creds = load_admin_credentials()
     return jsonify({
-    'logged_in': bool(session.get('admin_logged_in') or session.get('admin_temp_auth')),
-    'must_change_password': not bool(creds.get('initialized', False)),
-    'username': creds.get('username')
+        'logged_in': bool(session.get('admin_logged_in') or session.get('admin_temp_auth')),
+        'must_change_password': not bool(creds.get('initialized', False)),
+        'username': creds.get('username')
     })
 
 
@@ -241,7 +278,7 @@ def admin_status():
 def admin_upload():
     # Check if accessing from /admin route
     referrer = request.headers.get('Referer', '')
-    if '/admin' not in referrer:
+    if '/admin' not in referrer and request.environ.get('HTTP_REFERER', '').find('/admin') == -1:
         return jsonify({'success': False, 'message': 'Access denied. Please use /admin route.'}), 403
     
     # For each upload, require admin username/password in form fields
@@ -253,9 +290,20 @@ def admin_upload():
     creds = load_admin_credentials()
     if form_user != creds.get('username') or not check_password_hash(creds.get('password_hash'), form_pass):
         return jsonify({'success': False, 'message': 'Invalid upload credentials'}), 401
+    
     # Do not allow uploads until admin has changed default credentials
     if not creds.get('initialized', False):
         return jsonify({'success': False, 'message': 'Default credentials must be changed before uploads are allowed.'}), 403
+
+    # Check session timeout
+    current_time = datetime.now().timestamp()
+    if session.get('admin_logged_in'):
+        login_time = session.get('admin_login_time', 0)
+        if current_time - login_time > 1800:  # 30 minutes
+            session.clear()
+            return jsonify({'success': False, 'message': 'Session expired. Please login again.'}), 401
+    else:
+        return jsonify({'success': False, 'message': 'Not authenticated'}), 401
 
     if 'file' not in request.files:
         return jsonify({'success': False, 'message': 'No file uploaded'}), 400
@@ -274,16 +322,29 @@ def admin_upload():
             converted = convert_xlsx_to_csv()
             if converted:
                 process_file(converted)
+                return jsonify({'success': True, 'message': 'Excel file uploaded, converted to CSV, and processed successfully'})
+            else:
+                return jsonify({'success': False, 'message': 'Failed to convert Excel file to CSV'}), 500
+        elif ext in ['.xls']:
+            save_path = os.path.join('uploads', 'xlsx', filename.replace('.xls', '.xlsx'))
+            f.save(save_path)
+            # Convert and process immediately
+            converted = convert_xlsx_to_csv()
+            if converted:
+                process_file(converted)
+                return jsonify({'success': True, 'message': 'Excel file uploaded, converted to CSV, and processed successfully'})
+            else:
+                return jsonify({'success': False, 'message': 'Failed to convert Excel file to CSV'}), 500
         elif ext == '.csv':
             save_path = os.path.join('uploads', 'csv', filename)
             f.save(save_path)
             process_file(save_path)
+            return jsonify({'success': True, 'message': 'CSV file uploaded and processed successfully'})
         else:
-            return jsonify({'success': False, 'message': 'Unsupported file type'}), 400
+            return jsonify({'success': False, 'message': 'Unsupported file type. Please upload .csv, .xls, or .xlsx files'}), 400
 
-        return jsonify({'success': True, 'message': 'File uploaded and processed'})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': f'Error processing file: {str(e)}'}), 500
 
 def extract_semester_info(filename):
     """Extract semester information from filename"""
