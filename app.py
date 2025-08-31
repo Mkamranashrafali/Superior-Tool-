@@ -676,4 +676,10 @@ def sort_teachers_by_prefix_and_name(teachers):
     return sorted_teachers
 
 if __name__ == '__main__':
+    # Process existing file on startup
+    csv_file = get_current_csv_file()
+    if csv_file and os.path.exists(csv_file):
+        process_file(csv_file)
+        last_modified = os.path.getmtime(csv_file)
+    
     app.run(debug=True)
